@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTube Synced Webcam Recorder</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #121212;
+      color: white;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+    h1 {
+      color: #1db954;
+    }
+    iframe {
+      width: 100%;
+      max-width: 560px;
+      height: 315px;
+      margin-bottom: 10px;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    }
+    video {
+      display: none;
+    }
+    .profile-bar {
+      width: 100%;
+      max-width: 560px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 15px;
+      background-color: #1e1e1e;
+      border-radius: 8px;
+      margin-bottom: 15px;
+    }
+    .profile-info {
+      display: flex;
+      align-items: center;
+    }
+    .profile-pic {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background-color: gray;
+      margin-right: 10px;
+    }
+    .actions {
+      display: flex;
+      gap: 15px;
+    }
+    .actions span {
+      cursor: pointer;
+    }
+    button.switch-camera {
+      margin-top: 10px;
+      background-color: #1db954;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 5px;
+      cursor: pointer;
+      display: none;
+    }
+    button.switch-camera:hover {
+      background-color: #17a44d;
+    }
+    @media screen and (max-width: 1024px) {
+      button.switch-camera {
+        display: block;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <h1>YouTube Sync Recording</h1>
+
+  <div class="profile-bar">
+    <div class="profile-info">
+      <div class="profile-pic"></div>
+      <div><strong>User123</strong></div>
+    </div>
+    <div class="actions">
+      <span>👍 120</span>
+      <span>💬 34</span>
+    </div>
+  </div>
+
+  <iframe id="player" src="https://www.youtube.com/embed/1k7yUSKH1oA?enablejsapi=1" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+  <video id="webcam" autoplay muted></video>
+  <button class="switch-camera" onclick="handleCameraSwitch()">Switch Camera</button>
+
+  <script>
+    let player;
+    let mediaRecorder;
+    let recordedChunks = [];
+    let stream;
+    let currentDeviceIndex = 0;
+    let devices = [];
+    let isRecording = false;
+    let isYouTubePlaying = false;
+
+    var tag = document.createElement('script');
+    tag.src = "https://www.youtube.com/iframe_api";
+    var firstScriptTag = document.getElementsByTagName('script')[0];
+    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+    function onYouTubeIframeAPIReady() {
+      player = new YT.Player('player', {
+        events: {
+          'onStateChange': onPlayerStateChange
+        }
+      });
+    }
+
+    async function setupCamera(deviceId = null) {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+      const constraints = { video: deviceId ? { deviceId: { exact: deviceId } } : true, audio: true };
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      document.getElementById('webcam').srcObject = stream;
+      mediaRecorder = new MediaRecorder(stream);
+
+      mediaRecorder.ondataavailable = function(e) {
+        if (e.data.size > 0) {
+          recordedChunks.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = function() {
+        const blob = new Blob(recordedChunks, { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = 'recording.webm';
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+      };
+
+      if (isYouTubePlaying) {
+        recordedChunks = [];
+        mediaRecorder.start();
+        isRecording = true;
+        console.log("Recording continued after camera switch");
+      }
+    }
+
+    async function initDevices() {
+      const allDevices = await navigator.mediaDevices.enumerateDevices();
+      devices = allDevices.filter(device => device.kind === 'videoinput');
+    }
+
+    async function handleCameraSwitch() {
+      if (devices.length <= 1) return;
+      const wasRecording = isRecording;
+
+      if (mediaRecorder && mediaRecorder.state === "recording") {
+        mediaRecorder.stop();
+        isRecording = false;
+      }
+
+      currentDeviceIndex = (currentDeviceIndex + 1) % devices.length;
+      await setupCamera(devices[currentDeviceIndex].deviceId);
+    }
+
+    async function onPlayerStateChange(event) {
+      if (!mediaRecorder) {
+        await initDevices();
+        await setupCamera(devices[0]?.deviceId);
+      }
+
+      if (event.data == YT.PlayerState.PLAYING) {
+        recordedChunks = [];
+        mediaRecorder.start();
+        isRecording = true;
+        isYouTubePlaying = true;
+        console.log("Recording started");
+      } else if (event.data == YT.PlayerState.PAUSED || event.data == YT.PlayerState.ENDED) {
+        isYouTubePlaying = false;
+        if (mediaRecorder.state === "recording") {
+          mediaRecorder.stop();
+          isRecording = false;
+          console.log("Recording stopped and download initiated");
+        }
+      }
+    }
+  </script>
+</body>
+</html>
